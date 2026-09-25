@@ -157,21 +157,60 @@ $('leaveBtn').onclick = async () => {
   backToLobby();
 };
 
-$('inviteBtn').onclick = async () => {
-  const url = inviteLink();
-  const text = `来和我打德州扑克！房间号 ${state.roomCode}`;
-  if (navigator.share) {
-    try {
-      await navigator.share({ title: '德州扑克邀请', text, url });
-      return;
-    } catch {}
-  }
+// 邀请弹窗：直接显示链接并提供复制按钮，不依赖系统分享面板（Windows 上经常打不开）
+function inviteText() {
+  return `来和我打德州扑克！房间号 ${state.roomCode}，点链接加入：${inviteLink()}`;
+}
+
+$('inviteBtn').onclick = () => {
+  $('inviteCode').textContent = state.roomCode;
+  $('inviteLink').value = inviteLink();
+  // 只有手机上才显示"更多分享方式"，桌面系统的分享面板不可靠
+  const mobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  $('shareBtn').classList.toggle('hidden', !(navigator.share && mobile));
+  $('inviteModal').classList.remove('hidden');
+};
+
+async function copyText(text) {
   try {
-    await navigator.clipboard.writeText(`${text} ${url}`);
-    toast('邀请链接已复制，发给好友吧');
+    await navigator.clipboard.writeText(text);
+    return true;
   } catch {
-    prompt('复制这个链接发给好友：', url);
+    // 兼容不支持 clipboard API 的浏览器
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.append(ta);
+    ta.select();
+    let ok = false;
+    try {
+      ok = document.execCommand('copy');
+    } catch {}
+    ta.remove();
+    return ok;
   }
+}
+
+$('copyLinkBtn').onclick = async () => {
+  if (await copyText(inviteText())) {
+    toast('已复制，粘贴到微信/QQ 发给好友吧');
+    $('inviteModal').classList.add('hidden');
+  } else {
+    $('inviteLink').select();
+    toast('复制失败，请手动选中链接复制');
+  }
+};
+$('shareBtn').onclick = async () => {
+  try {
+    await navigator.share({ title: '德州扑克邀请', text: inviteText() });
+    $('inviteModal').classList.add('hidden');
+  } catch {}
+};
+$('inviteLink').onfocus = (e) => e.target.select();
+$('inviteClose').onclick = () => $('inviteModal').classList.add('hidden');
+$('inviteModal').onclick = (e) => {
+  if (e.target.id === 'inviteModal') $('inviteModal').classList.add('hidden');
 };
 
 $('startBtn').onclick = () => emit('startGame');

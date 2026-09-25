@@ -112,6 +112,20 @@
     </aside>
   </section>
 
+  <div id="inviteModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="chat-head">
+        <b>邀请好友</b>
+        <button id="inviteClose" class="btn ghost small">关闭</button>
+      </div>
+      <p class="muted">把链接发给朋友，打开就能加入。也可以让朋友在首页输入房间号：</p>
+      <div id="inviteCode" class="invite-code"></div>
+      <input id="inviteLink" readonly />
+      <button id="copyLinkBtn" class="btn gold wide">复制邀请链接</button>
+      <button id="shareBtn" class="btn ghost wide hidden">更多分享方式</button>
+    </div>
+  </div>
+
   <div id="toast" class="toast hidden"></div>
 
   <script src="/socket.io/socket.io.js"></script>

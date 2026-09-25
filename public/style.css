@@ -336,6 +336,37 @@ input, select {
 .chat-log .msg b { color: var(--gold); }
 .chat-panel form { margin-top: 8px; }
 
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.modal-card {
+  width: 100%;
+  max-width: 380px;
+  background: #13211b;
+  border: 1px solid var(--gold-dark);
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.modal-card p { margin: 0; }
+.invite-code {
+  text-align: center;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: 8px;
+  color: var(--gold);
+}
+#inviteLink { font-size: 14px; }
+
 .toast {
   position: fixed;
   left: 50%;
