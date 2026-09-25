@@ -11,6 +11,17 @@
 - **行动计时**：每人 30 秒，超时自动过牌/弃牌（掉线的玩家 5 秒），不会卡住整桌
 - **其他**：输光后可补码、聊天和牌局记录、适配手机竖屏
 
+## 一键部署到公网（推荐）
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/litianyuan061-arch/-)
+
+1. 点上面的按钮，用 GitHub 账号登录 Render（免费）
+2. 确认页面直接点 **Deploy Blueprint**（免费套餐不需要绑卡）
+3. 等几分钟构建完成，Render 会给你一个 `https://texas-holdem-xxxx.onrender.com` 这样的网址
+4. 打开网址 → 创建房间 → 点「邀请好友」把链接发出去
+
+免费套餐 15 分钟没人访问会休眠，之后第一次打开要等 30~60 秒启动，属于正常现象。
+
 ## 本地运行
 
 需要 Node.js 18 或更高版本。

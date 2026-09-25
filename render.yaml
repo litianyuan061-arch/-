@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: texas-holdem
+    runtime: node
+    plan: free
+    branch: claude/texas-holdem-multiplayer-app-4570bo
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
