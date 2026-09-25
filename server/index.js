@@ -8,7 +8,7 @@ const { Server } = require('socket.io');
 const { Table, GameError } = require('./table');
 
 const PORT = process.env.PORT || 3000;
-const TURN_SECONDS = Number(process.env.TURN_SECONDS || 30);
+const TURN_SECONDS = Number(process.env.TURN_SECONDS || 60);
 const NEXT_HAND_SECONDS = Number(process.env.NEXT_HAND_SECONDS || 6);
 const EMPTY_ROOM_TTL_MS = 10 * 60 * 1000;
 

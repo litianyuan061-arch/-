@@ -535,7 +535,7 @@ function tickTimers() {
   const now = Date.now();
   document.querySelectorAll('.timer').forEach((el) => {
     const left = Math.max(0, Number(el.dataset.deadline) - now);
-    const totalMs = (state && state.turnMsTotal) || 30000;
+    const totalMs = (state && state.turnMsTotal) || 60000;
     el.style.width = Math.min(100, (left / totalMs) * 100) + '%';
     el.style.background = left < Math.min(8000, totalMs / 3) ? 'var(--red)' : '';
   });
