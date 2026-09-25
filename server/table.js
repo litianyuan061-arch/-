@@ -1,6 +1,6 @@
 'use strict';
 
-const { createDeck, shuffle, evaluateBest, compareScores } = require('./cards');
+const { createDeck, shuffle, evaluateBest, compareScores, describeHand } = require('./cards');
 
 const BETTING_STAGES = ['preflop', 'flop', 'turn', 'river'];
 const NEXT_STAGE = { preflop: 'flop', flop: 'turn', turn: 'river' };
@@ -433,7 +433,17 @@ class Table {
       bbSeat: this.bbSeat,
       toActSeat: this.toActSeat,
       players,
-      you: viewer ? { id: viewer.id, seat: viewer.seat } : null,
+      you: viewer
+        ? {
+            id: viewer.id,
+            seat: viewer.seat,
+            // 只在自己还拿着牌时给出牌型提示
+            hand:
+              viewer.inHand && !viewer.folded && viewer.hand.length && this.stage !== 'waiting'
+                ? describeHand(viewer.hand, this.board)
+                : null,
+          }
+        : null,
       actions,
       lastResult: this.stage === 'showdown' ? this.lastResult : null,
       log: this.log.slice(-30),

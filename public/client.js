@@ -435,9 +435,25 @@ function render() {
   }
 
   renderResult();
+  renderHandHint();
   renderControls(me, handActive);
   renderLog();
   tickTimers();
+}
+
+function renderHandHint() {
+  const hint = $('handHint');
+  const h = state.you && state.you.hand;
+  if (!h || state.stage === 'showdown') return hint.classList.add('hidden');
+  hint.innerHTML = `你当前的牌型：<b></b>`;
+  hint.querySelector('b').textContent = h.text;
+  if (h.boardPlays) {
+    const warn = document.createElement('span');
+    warn.className = 'warn';
+    warn.textContent = '⚠ 这 5 张全部来自公共牌，对手至少也有这手牌，最好只能平分';
+    hint.append(warn);
+  }
+  hint.classList.remove('hidden');
 }
 
 function renderResult() {
@@ -536,3 +552,43 @@ window.addEventListener('resize', () => state && render());
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
+
+// ---------- 规则说明 ----------
+
+const HAND_RANKS = [
+  ['皇家同花顺', '同花色的 10-J-Q-K-A', 'Ts Js Qs Ks As'],
+  ['同花顺', '同花色的五张连续牌', '5h 6h 7h 8h 9h'],
+  ['四条', '四张同点数', 'Kc Kd Kh Ks 3d'],
+  ['葫芦', '三条 + 一对', 'Qc Qd Qh 7s 7d'],
+  ['同花', '五张同花色', '2d 6d 9d Jd Ad'],
+  ['顺子', '五张连续点数', '6c 7d 8h 9s Tc'],
+  ['三条', '三张同点数', '8c 8d 8h Ks 4d'],
+  ['两对', '两个对子', 'Jc Jd 4h 4s Ad'],
+  ['一对', '两张同点数', 'Ac Ad 9h 6s 2d'],
+  ['高牌', '什么都没有，比最大的牌', 'Ac Jd 8h 5s 3c'],
+];
+
+function buildRankList() {
+  const list = $('rankList');
+  for (const [name, desc, cards] of HAND_RANKS) {
+    const row = document.createElement('div');
+    row.className = 'rank-row';
+    const label = document.createElement('div');
+    label.className = 'rank-name';
+    label.innerHTML = `${name}<small>${desc}</small>`;
+    const cardsEl = document.createElement('div');
+    cardsEl.className = 'cards';
+    for (const c of cards.split(' ')) cardsEl.append(cardEl(c));
+    row.append(label, cardsEl);
+    list.append(row);
+  }
+}
+buildRankList();
+
+document.querySelectorAll('.rules-open').forEach((btn) => {
+  btn.onclick = () => $('rulesModal').classList.remove('hidden');
+});
+$('rulesClose').onclick = () => $('rulesModal').classList.add('hidden');
+$('rulesModal').onclick = (e) => {
+  if (e.target.id === 'rulesModal') $('rulesModal').classList.add('hidden');
+};

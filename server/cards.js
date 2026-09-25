@@ -93,7 +93,48 @@ function handName(score) {
   return HAND_NAMES[score[0]];
 }
 
+const RANK_LABEL = { 11: 'J', 12: 'Q', 13: 'K', 14: 'A' };
+const label = (v) => RANK_LABEL[v] || String(v);
+
+// 牌型的具体描述，例如 "两对 10 和 6"
+function describeScore(score) {
+  const [cat, a, b] = score;
+  switch (cat) {
+    case 8: return a === 14 ? '皇家同花顺' : `同花顺（${label(a)} 高）`;
+    case 7: return `四条 ${label(a)}`;
+    case 6: return `葫芦（${label(a)} 带 ${label(b)}）`;
+    case 5: return `同花（${label(a)} 高）`;
+    case 4: return `顺子（${label(a)} 高）`;
+    case 3: return `三条 ${label(a)}`;
+    case 2: return `两对 ${label(a)} 和 ${label(b)}`;
+    case 1: return `一对 ${label(a)}`;
+    default: return `高牌 ${label(a)}`;
+  }
+}
+
+/**
+ * 给玩家看的"当前牌型"提示。
+ * boardPlays: 最好的 5 张全部来自公共牌（自己的底牌没用上，对手至少也有这手牌）
+ */
+function describeHand(hole, board) {
+  if (!hole || hole.length < 2) return null;
+  if (board.length < 3) {
+    const [x, y] = hole.map(rankValue).sort((m, n) => n - m);
+    const score = x === y ? [1, x] : [0, x];
+    return { name: handName(score), text: describeScore(score), cards: [...hole], boardPlays: false };
+  }
+  const best = evaluateBest([...hole, ...board]);
+  return {
+    name: best.name,
+    text: describeScore(best.score),
+    cards: best.cards,
+    boardPlays: best.cards.every((c) => board.includes(c)),
+  };
+}
+
 module.exports = {
+  describeScore,
+  describeHand,
   RANKS,
   SUITS,
   createDeck,

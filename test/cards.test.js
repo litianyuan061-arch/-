@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { evaluateBest, compareScores, createDeck } = require('../server/cards');
+const { evaluateBest, compareScores, createDeck, describeHand } = require('../server/cards');
 
 const best = (s) => evaluateBest(s.split(' '));
 const cmp = (a, b) => Math.sign(compareScores(best(a).score, best(b).score));
@@ -43,4 +43,20 @@ test('picks the best five of seven', () => {
   const r = best('Ah Kh 2h 3h 4h 9h Tc');
   assert.strictEqual(r.name, '同花');
   assert.deepStrictEqual(r.score, [5, 14, 13, 9, 4, 3]);
+});
+
+test('describeHand gives a readable hint and detects when the board plays', () => {
+  const h = (hole, board) => describeHand(hole.split(' '), board ? board.split(' ') : []);
+  assert.deepStrictEqual(
+    [h('Qc Qd').text, h('As 7d').text],
+    ['一对 Q', '高牌 A']
+  );
+  const board = h('4h 3c', '6h Ts Tc 9c 6c');
+  assert.strictEqual(board.text, '两对 10 和 6');
+  assert.strictEqual(board.boardPlays, true);
+  const mine = h('Th 2c', '6h Ts Tc 9c 6c');
+  assert.strictEqual(mine.text, '葫芦（10 带 6）');
+  assert.strictEqual(mine.boardPlays, false);
+  assert.strictEqual(h('Ah Kh', 'Qh Jh Th 2c 3d').text, '皇家同花顺');
+  assert.strictEqual(h('5c 4d', 'Ah 2s 3c 9d Kc').text, '顺子（5 高）');
 });

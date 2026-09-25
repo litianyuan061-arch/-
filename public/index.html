@@ -42,13 +42,17 @@
         <button id="createBtn" class="btn gold wide">创建房间并邀请好友</button>
       </div>
       <p id="lobbyError" class="error"></p>
+      <button class="btn ghost wide rules-open">📖 游戏规则</button>
     </div>
   </section>
 
   <!-- 牌桌 -->
   <section id="game" class="screen hidden">
     <header class="topbar">
-      <button id="leaveBtn" class="btn ghost small">离开</button>
+      <div class="row">
+        <button id="leaveBtn" class="btn ghost small">离开</button>
+        <button class="btn ghost small rules-open">规则</button>
+      </div>
       <div class="room-info">
         房间 <b id="roomCode">-----</b>
         <span id="blindsInfo" class="muted"></span>
@@ -70,6 +74,7 @@
     <div id="resultBanner" class="result-banner hidden"></div>
 
     <footer class="controls">
+      <div id="handHint" class="hand-hint hidden"></div>
       <div id="hostControls" class="hidden">
         <button id="startBtn" class="btn gold wide">开始游戏</button>
       </div>
@@ -123,6 +128,50 @@
       <input id="inviteLink" readonly />
       <button id="copyLinkBtn" class="btn gold wide">复制邀请链接</button>
       <button id="shareBtn" class="btn ghost wide hidden">更多分享方式</button>
+    </div>
+  </div>
+
+  <div id="rulesModal" class="modal hidden">
+    <div class="modal-card rules">
+      <div class="chat-head">
+        <b>德州扑克规则</b>
+        <button id="rulesClose" class="btn ghost small">关闭</button>
+      </div>
+      <div class="rules-body">
+        <h3>目标</h3>
+        <p>用<b>自己的 2 张底牌</b>加上桌面的 <b>5 张公共牌</b>，从这 7 张里挑出最好的 5 张组成牌型，比谁大；或者下注让其他人都弃牌，赢走底池。</p>
+
+        <h3>一手牌的流程</h3>
+        <ol>
+          <li><b>盲注</b>：庄家（D）左边两位分别强制下小盲、大盲，保证每手都有东西可赢。</li>
+          <li><b>翻牌前</b>：每人发 2 张底牌，只有自己能看到。从大盲左边的人开始下注。</li>
+          <li><b>翻牌</b>：桌面发 3 张公共牌，再下注一轮。</li>
+          <li><b>转牌</b>：再发 1 张公共牌（共 4 张），下注一轮。</li>
+          <li><b>河牌</b>：发最后 1 张（共 5 张），最后一轮下注。</li>
+          <li><b>摊牌</b>：还没弃牌的人亮牌比大小，最大的赢走底池；一样大就平分。</li>
+        </ol>
+        <p>任何时候只剩一个人没弃牌，他直接赢，不用亮牌。每打完一手，庄家按钮顺时针移一位。</p>
+
+        <h3>轮到你时可以</h3>
+        <ul>
+          <li><b>弃牌</b>：放弃这一手，已经下的注拿不回来。</li>
+          <li><b>过牌</b>：没人下注时，不下注，把行动交给下一个人。</li>
+          <li><b>跟注</b>：补齐到当前最高的下注额。</li>
+          <li><b>下注 / 加注</b>：加大下注。加注额至少要等于上一次加的数额（最少一个大盲）。</li>
+          <li><b>全下</b>：押上所有筹码。筹码不够跟注也可以全下，这时你只能赢自己跟得上的那部分（主池），多出来的部分另算边池。</li>
+        </ul>
+        <p>每次行动有 30 秒，超时会自动过牌（能过牌时）或弃牌。</p>
+
+        <h3>牌型大小（从大到小）</h3>
+        <div id="rankList" class="rank-list"></div>
+        <p class="muted">牌型相同时比点数：A 最大，2 最小；A 也可以当 1 用组成 A-2-3-4-5 的最小顺子。花色不分大小。</p>
+
+        <h3>小提示</h3>
+        <ul>
+          <li>底部会实时显示<b>你当前的牌型</b>。</li>
+          <li>如果提示"全部来自公共牌"，说明你的底牌没用上，所有对手至少也有这手牌，最好也只是平分。</li>
+        </ul>
+      </div>
     </div>
   </div>
 

@@ -367,6 +367,33 @@ input, select {
 }
 #inviteLink { font-size: 14px; }
 
+.modal-card.rules { max-width: 520px; max-height: calc(100vh - 32px); }
+.rules-body { overflow-y: auto; font-size: 14px; line-height: 1.6; padding-right: 4px; }
+.rules-body h3 { color: var(--gold); font-size: 15px; margin: 14px 0 4px; }
+.rules-body h3:first-child { margin-top: 0; }
+.rules-body p { margin: 4px 0; }
+.rules-body ol, .rules-body ul { margin: 4px 0; padding-left: 20px; }
+.rank-list { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
+.rank-row { display: flex; align-items: center; gap: 10px; }
+.rank-row .rank-name { width: 92px; flex: none; font-weight: 700; }
+.rank-row .rank-name small { display: block; font-weight: 400; color: var(--muted); font-size: 11px; }
+.rank-row .cards { display: flex; gap: 2px; }
+.rank-row .card { width: 26px; height: 36px; border-radius: 4px; animation: none; }
+.rank-row .card .r { font-size: 13px; }
+.rank-row .card .s { font-size: 11px; }
+.lobby-card .rules-open { margin-top: 6px; }
+
+.hand-hint {
+  text-align: center;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+.hand-hint b {
+  color: var(--gold);
+  font-size: 16px;
+}
+.hand-hint .warn { color: #ffb86b; font-size: 12px; display: block; }
+
 .toast {
   position: fixed;
   left: 50%;
