@@ -153,6 +153,7 @@ $('leaveBtn').onclick = async () => {
     const me = state.players.find((p) => p.id === state.you?.id);
     if (me && me.inHand && !me.folded && !confirm('牌局进行中，离开将自动弃牌，确定离开吗？')) return;
   }
+  leaveVoice(false);
   await emit('leaveRoom');
   backToLobby();
 };
@@ -214,6 +215,7 @@ $('inviteModal').onclick = (e) => {
 };
 
 $('startBtn').onclick = () => emit('startGame');
+$('showBtn').onclick = () => emit('showCards');
 $('rebuyBtn').onclick = () => emit('rebuy');
 $('foldBtn').onclick = () => emit('action', { type: 'fold' });
 $('callBtn').onclick = () => {
@@ -342,7 +344,9 @@ function render() {
   let center = '';
   if (s.stage === 'waiting') {
     const n = s.players.length;
+    const host = s.you && s.hostId === s.you.id;
     center = n < 2 ? '等待好友加入…点右上角「邀请好友」' : `${n} 位玩家已就座`;
+    if (host && n < s.settings.maxSeats) center += '\n点空位可以添加机器人 🤖';
   }
   $('centerMsg').textContent = center;
 
@@ -364,15 +368,24 @@ function render() {
       empty.style.left = pos.x + '%';
       empty.style.top = pos.y + '%';
       empty.textContent = '空位';
+      if (s.you && s.hostId === s.you.id) {
+        empty.classList.add('can-add');
+        empty.textContent = '+🤖';
+        empty.title = '添加机器人';
+        empty.onclick = () => emit('addBot', { seat });
+      }
       seatsEl.append(empty);
       continue;
     }
 
     const el = document.createElement('div');
     el.className = 'seat';
+    el.dataset.pid = p.id;
+    if (voiceSpeaking.has(p.id)) el.classList.add('speaking');
     if (p.id === s.you?.id) el.classList.add('me');
     if (handActive && s.toActSeat === seat) el.classList.add('turn');
-    if (p.folded || (!p.inHand && s.stage !== 'waiting')) el.classList.add('folded');
+    const showedCards = s.lastResult && s.lastResult.shown.includes(p.id);
+    if ((p.folded && !showedCards) || (!p.inHand && s.stage !== 'waiting')) el.classList.add('folded');
     if (!p.connected) el.classList.add('offline');
     if (winners.has(p.id)) el.classList.add('winner');
     el.style.left = pos.x + '%';
@@ -392,7 +405,8 @@ function render() {
     plate.className = 'plate';
     const name = document.createElement('div');
     name.className = 'name';
-    name.textContent = (p.id === s.hostId ? '👑 ' : '') + p.name;
+    const v = (s.voice || []).find((x) => x.playerId === p.id);
+    name.textContent = (v ? (v.muted ? '🔇' : '🎙') : '') + (p.id === s.hostId ? '👑 ' : '') + p.name;
     const chips = document.createElement('div');
     chips.className = 'chips';
     chips.textContent = p.chips > 0 ? fmt(p.chips) : p.inHand ? '全下' : '没有筹码';
@@ -410,9 +424,18 @@ function render() {
       tag.textContent = 'D';
       plate.append(tag);
     }
+    if (p.isBot && s.you && s.hostId === s.you.id) {
+      const kick = document.createElement('button');
+      kick.className = 'kick';
+      kick.textContent = '×';
+      kick.title = '移除机器人';
+      kick.onclick = () => emit('removeBot', { id: p.id });
+      plate.append(kick);
+    }
     el.append(plate);
 
     let label = p.lastAction;
+    if (s.lastResult && s.lastResult.shown.includes(p.id)) label = '亮牌';
     if (s.lastResult && s.lastResult.hands && s.lastResult.hands[p.id]) label = s.lastResult.hands[p.id].name;
     if (s.lastResult && s.lastResult.winnings[p.id]) label = `赢 ${fmt(s.lastResult.winnings[p.id])}`;
     if (label) {
@@ -478,6 +501,7 @@ function renderControls(me, handActive) {
   const canStart = s.players.filter((p) => p.chips > 0).length >= 2;
 
   $('hostControls').classList.toggle('hidden', !(isHost && !s.started && !handActive));
+  $('showControls').classList.toggle('hidden', !(s.you && s.you.canShow));
   $('startBtn').disabled = !canStart;
   $('startBtn').textContent = canStart ? (s.handNumber ? '继续游戏' : '开始游戏') : '至少需要 2 名玩家';
 
@@ -591,4 +615,171 @@ document.querySelectorAll('.rules-open').forEach((btn) => {
 $('rulesClose').onclick = () => $('rulesModal').classList.add('hidden');
 $('rulesModal').onclick = (e) => {
   if (e.target.id === 'rulesModal') $('rulesModal').classList.add('hidden');
+};
+
+// ---------- 语音聊天（WebRTC 点对点，服务器只转发信令） ----------
+
+const ICE_CONFIG = {
+  iceServers: [
+    { urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] },
+    { urls: 'stun:stun.miwifi.com:3478' },
+  ],
+};
+const voice = { joined: false, stream: null, muted: false, peers: new Map(), ctx: null, meters: new Map() };
+const voiceSpeaking = new Set();
+
+async function joinVoice() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.RTCPeerConnection) {
+    return toast('当前浏览器不支持语音，请用 Chrome 或 Safari 打开 https 网址', 4000);
+  }
+  try {
+    voice.stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+  } catch {
+    return toast('没有拿到麦克风权限，请在浏览器设置里允许使用麦克风', 4000);
+  }
+  try {
+    voice.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  } catch {}
+  const res = await emit('voice:join');
+  if (!res.ok) return stopLocalStream();
+  voice.joined = true;
+  voice.muted = false;
+  if (state) watchLevel(state.you.id, voice.stream);
+  for (const peer of res.peers) createPeer(peer.socketId, peer.playerId, true);
+  updateVoiceButtons();
+  toast(res.peers.length ? `已加入语音，${res.peers.length} 人在线` : '已加入语音，等待其他人加入');
+}
+
+function stopLocalStream() {
+  if (voice.stream) voice.stream.getTracks().forEach((t) => t.stop());
+  voice.stream = null;
+}
+
+function leaveVoice(notify = true) {
+  for (const id of [...voice.peers.keys()]) closePeer(id);
+  stopLocalStream();
+  for (const m of voice.meters.values()) m.source.disconnect();
+  voice.meters.clear();
+  voiceSpeaking.clear();
+  if (voice.ctx) voice.ctx.close().catch(() => {});
+  voice.ctx = null;
+  if (voice.joined && notify) emit('voice:leave');
+  voice.joined = false;
+  updateVoiceButtons();
+}
+
+function createPeer(socketId, playerId, initiator) {
+  const pc = new RTCPeerConnection(ICE_CONFIG);
+  const audio = document.createElement('audio');
+  audio.autoplay = true;
+  audio.setAttribute('playsinline', '');
+  document.body.append(audio);
+  const peer = { pc, playerId, audio, pending: [] };
+  voice.peers.set(socketId, peer);
+
+  voice.stream.getTracks().forEach((t) => pc.addTrack(t, voice.stream));
+  pc.onicecandidate = (e) => {
+    if (e.candidate) socket.emit('voice:signal', { to: socketId, data: { candidate: e.candidate } });
+  };
+  pc.ontrack = (e) => {
+    audio.srcObject = e.streams[0];
+    audio.play().catch(() => {});
+    watchLevel(playerId, e.streams[0]);
+  };
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === 'failed') {
+      const name = state?.players.find((p) => p.id === playerId)?.name || '对方';
+      toast(`和 ${name} 的语音连接失败（网络限制），可以重新加入语音试试`, 4000);
+    }
+  };
+  if (initiator) {
+    pc.createOffer()
+      .then((offer) => pc.setLocalDescription(offer))
+      .then(() => socket.emit('voice:signal', { to: socketId, data: { sdp: pc.localDescription } }));
+  }
+  return peer;
+}
+
+function closePeer(socketId) {
+  const peer = voice.peers.get(socketId);
+  if (!peer) return;
+  peer.pc.close();
+  peer.audio.remove();
+  const meter = voice.meters.get(peer.playerId);
+  if (meter) {
+    meter.source.disconnect();
+    voice.meters.delete(peer.playerId);
+  }
+  voiceSpeaking.delete(peer.playerId);
+  voice.peers.delete(socketId);
+}
+
+socket.on('voice:signal', async ({ from, playerId, data }) => {
+  if (!voice.joined) return;
+  const peer = voice.peers.get(from) || createPeer(from, playerId, false);
+  const { pc } = peer;
+  try {
+    if (data.sdp) {
+      await pc.setRemoteDescription(data.sdp);
+      if (data.sdp.type === 'offer') {
+        await pc.setLocalDescription(await pc.createAnswer());
+        socket.emit('voice:signal', { to: from, data: { sdp: pc.localDescription } });
+      }
+      for (const c of peer.pending) await pc.addIceCandidate(c);
+      peer.pending = [];
+    } else if (data.candidate) {
+      if (pc.remoteDescription) await pc.addIceCandidate(data.candidate);
+      else peer.pending.push(data.candidate);
+    }
+  } catch (e) {
+    console.warn('voice signal error', e);
+  }
+});
+socket.on('voice:peer-left', ({ socketId }) => closePeer(socketId));
+// 断线后服务器已经把我们移出语音，本地也清理掉
+socket.on('disconnect', () => voice.joined && leaveVoice(false));
+
+// 用音量检测谁在说话，给座位加高亮
+function watchLevel(playerId, stream) {
+  if (!voice.ctx || voice.meters.has(playerId)) return;
+  try {
+    const source = voice.ctx.createMediaStreamSource(stream);
+    const analyser = voice.ctx.createAnalyser();
+    analyser.fftSize = 512;
+    source.connect(analyser);
+    voice.meters.set(playerId, { source, analyser, data: new Uint8Array(analyser.fftSize) });
+  } catch {}
+}
+
+setInterval(() => {
+  if (!voice.joined) return;
+  for (const [playerId, m] of voice.meters) {
+    m.analyser.getByteTimeDomainData(m.data);
+    let sum = 0;
+    for (const x of m.data) sum += (x - 128) * (x - 128);
+    const rms = Math.sqrt(sum / m.data.length);
+    const muted = playerId === state?.you?.id && voice.muted;
+    const speaking = rms > 6 && !muted;
+    if (speaking !== voiceSpeaking.has(playerId)) {
+      speaking ? voiceSpeaking.add(playerId) : voiceSpeaking.delete(playerId);
+      document.querySelectorAll(`.seat[data-pid="${playerId}"]`).forEach((el) => el.classList.toggle('speaking', speaking));
+    }
+  }
+}, 150);
+
+function updateVoiceButtons() {
+  $('voiceBtn').innerHTML = voice.joined ? '📴<span class="lbl"> 退出语音</span>' : '🎤<span class="lbl"> 语音</span>';
+  $('voiceBtn').classList.toggle('active', voice.joined);
+  $('muteBtn').classList.toggle('hidden', !voice.joined);
+  $('muteBtn').textContent = voice.muted ? '🔇 已静音' : '🎙 静音';
+}
+
+$('voiceBtn').onclick = () => (voice.joined ? leaveVoice() : joinVoice());
+$('muteBtn').onclick = () => {
+  voice.muted = !voice.muted;
+  if (voice.stream) voice.stream.getAudioTracks().forEach((t) => (t.enabled = !voice.muted));
+  emit('voice:mute', { muted: voice.muted });
+  updateVoiceButtons();
 };

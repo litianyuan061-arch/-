@@ -40,13 +40,15 @@ class Table {
 
   // ---------- 玩家管理 ----------
 
-  addPlayer(id, name) {
+  addPlayer(id, name, { isBot = false, seat: wantedSeat } = {}) {
     if (this.players.has(id)) throw new GameError('玩家已在桌上');
-    const seat = this.seats.indexOf(null);
+    let seat = this.seats.indexOf(null);
+    if (wantedSeat != null && this.seats[wantedSeat] === null) seat = wantedSeat;
     if (seat === -1) throw new GameError('座位已满');
     const player = {
       id,
       name,
+      isBot,
       seat,
       chips: this.settings.startingChips,
       buyIns: 1,
@@ -64,7 +66,7 @@ class Table {
     };
     this.players.set(id, player);
     this.seats[seat] = id;
-    if (!this.hostId) this.hostId = id;
+    if (!this.hostId && !isBot) this.hostId = id;
     this._log(`${name} 加入了牌桌`);
     this.seq++;
     return player;
@@ -88,10 +90,7 @@ class Table {
     // 本手结束后（或者没在牌局中）直接移除
     if (this.isHandActive() && p.inHand) {
       p.leaving = true;
-      if (this.hostId === id) {
-        const next = [...this.players.values()].find((x) => !x.leaving);
-        this.hostId = next ? next.id : null;
-      }
+      if (this.hostId === id) this._reassignHost();
     } else {
       this._deletePlayer(id);
     }
@@ -103,10 +102,12 @@ class Table {
     if (!p) return;
     this.seats[p.seat] = null;
     this.players.delete(id);
-    if (this.hostId === id) {
-      const next = [...this.players.values()].find((x) => !x.leaving);
-      this.hostId = next ? next.id : null;
-    }
+    if (this.hostId === id) this._reassignHost();
+  }
+
+  _reassignHost() {
+    const next = [...this.players.values()].find((x) => !x.leaving && !x.isBot);
+    this.hostId = next ? next.id : null;
   }
 
   rebuy(id) {
@@ -174,6 +175,7 @@ class Table {
     this._atSeat(this.bbSeat).lastAction = `大盲 ${this._atSeat(this.bbSeat).bet}`;
     this.currentBet = bigBlind;
     this.minRaise = bigBlind;
+    this.raisesThisStreet = 0;
 
     // 从庄家左手边开始，每人发两张
     for (let round = 0; round < 2; round++) {
@@ -249,6 +251,7 @@ class Table {
         }
         if (fullRaise) this.minRaise = raiseSize;
         this.currentBet = amount;
+        this.raisesThisStreet++;
         p.lastAction = isAllIn ? `全下 ${amount}` : `${wasBet ? '下注' : '加注到'} ${amount}`;
         break;
       }
@@ -259,6 +262,17 @@ class Table {
     p.acted = true;
     this._log(`${p.name} ${p.lastAction}`);
     this._progress(p.seat);
+  }
+
+  // 一手结束后主动亮牌（秀牌）
+  showCards(id) {
+    const p = this._get(id);
+    if (this.stage !== 'showdown' || !this.lastResult) throw new GameError('本手结束后才能亮牌');
+    if (!p.inHand || !p.hand.length) throw new GameError('你这手没有牌');
+    if (this.lastResult.shown.includes(id)) return;
+    this.lastResult.shown.push(id);
+    this._log(`${p.name} 亮牌：${p.hand.map(prettyCard).join(' ')}`);
+    this.seq++;
   }
 
   // 超时自动操作：能过牌就过牌，否则弃牌
@@ -292,6 +306,7 @@ class Table {
     }
     this.currentBet = 0;
     this.minRaise = this.settings.bigBlind;
+    this.raisesThisStreet = 0;
     this.toActSeat = -1;
 
     if (this.stage === 'river') return this._finishHand();
@@ -387,6 +402,7 @@ class Table {
       return {
         id: p.id,
         name: p.name,
+        isBot: p.isBot,
         seat: p.seat,
         chips: p.chips,
         buyIns: p.buyIns,
@@ -437,6 +453,11 @@ class Table {
         ? {
             id: viewer.id,
             seat: viewer.seat,
+            canShow:
+              this.stage === 'showdown' &&
+              viewer.inHand &&
+              viewer.hand.length > 0 &&
+              !(this.lastResult?.shown || []).includes(viewer.id),
             // 只在自己还拿着牌时给出牌型提示
             hand:
               viewer.inHand && !viewer.folded && viewer.hand.length && this.stage !== 'waiting'
@@ -501,6 +522,11 @@ class Table {
     this.log.push({ t: Date.now(), text });
     if (this.log.length > 100) this.log.shift();
   }
+}
+
+function prettyCard(c) {
+  const suit = { s: '♠', h: '♥', d: '♦', c: '♣' }[c[1]];
+  return (c[0] === 'T' ? '10' : c[0]) + suit;
 }
 
 // 按每个人投入的筹码切分主池和边池

@@ -394,6 +394,29 @@ input, select {
 }
 .hand-hint .warn { color: #ffb86b; font-size: 12px; display: block; }
 
+.empty-seat.can-add { cursor: pointer; color: rgba(255, 255, 255, 0.55); border-color: rgba(232, 184, 74, 0.5); font-size: 13px; }
+.empty-seat.can-add:hover { background: rgba(232, 184, 74, 0.15); }
+.kick {
+  position: absolute;
+  top: -8px;
+  left: -6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--red);
+  color: #fff;
+  font-size: 13px;
+  line-height: 20px;
+  padding: 0;
+  cursor: pointer;
+}
+.seat.speaking .plate { border-color: #5ad1ff; box-shadow: 0 0 14px rgba(90, 209, 255, 0.8); }
+#voiceBtn.active { background: rgba(90, 209, 255, 0.25); }
+.mute-btn { position: fixed; right: 12px; top: calc(116px + env(safe-area-inset-top)); z-index: 6; }
+#showControls { margin-bottom: 8px; }
+.center-msg { white-space: pre-line; }
+
 .toast {
   position: fixed;
   left: 50%;
@@ -408,7 +431,15 @@ input, select {
   text-align: center;
 }
 
+.topbar .btn { white-space: nowrap; }
+.topbar .row { gap: 6px; flex: none; }
+.room-info { min-width: 0; }
+
 @media (max-width: 600px) {
+  .topbar { padding-left: 8px; padding-right: 8px; gap: 4px; }
+  .topbar .btn.small { padding: 7px 9px; }
+  #voiceBtn .lbl { display: none; }
+  .room-info b { letter-spacing: 1px; }
   .table { aspect-ratio: 0.72; width: min(100%, calc((100vh - 230px) * 0.72)); }
   .felt { inset: 12% 10%; }
   .card { width: 34px; height: 48px; }

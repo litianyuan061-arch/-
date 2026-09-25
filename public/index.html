@@ -57,7 +57,10 @@
         房间 <b id="roomCode">-----</b>
         <span id="blindsInfo" class="muted"></span>
       </div>
-      <button id="inviteBtn" class="btn gold small">邀请好友</button>
+      <div class="row">
+        <button id="voiceBtn" class="btn ghost small">🎤<span class="lbl"> 语音</span></button>
+        <button id="inviteBtn" class="btn gold small">邀请好友</button>
+      </div>
     </header>
 
     <div class="table-wrap">
@@ -77,6 +80,9 @@
       <div id="handHint" class="hand-hint hidden"></div>
       <div id="hostControls" class="hidden">
         <button id="startBtn" class="btn gold wide">开始游戏</button>
+      </div>
+      <div id="showControls" class="hidden">
+        <button id="showBtn" class="btn ghost wide">🃏 亮牌给大家看</button>
       </div>
       <div id="rebuyControls" class="hidden">
         <button id="rebuyBtn" class="btn primary wide">补充筹码</button>
@@ -103,6 +109,7 @@
       <div id="waitMsg" class="wait-msg"></div>
     </footer>
 
+    <button id="muteBtn" class="btn ghost small mute-btn hidden">🎙 静音</button>
     <button id="chatToggle" class="chat-toggle" aria-label="聊天">💬<span id="chatBadge" class="badge hidden"></span></button>
     <aside id="chatPanel" class="chat-panel hidden">
       <div class="chat-head">
@@ -169,6 +176,9 @@
         <h3>小提示</h3>
         <ul>
           <li>底部会实时显示<b>你当前的牌型</b>。</li>
+          <li>一手结束后可以点「亮牌」，把自己的底牌秀给大家看。</li>
+          <li>房主点空位可以添加 🤖 机器人，人不够也能开局；点机器人头像上的 × 移除。</li>
+          <li>点右上角「🎤 语音」可以和同桌的人语音聊天，第一次需要允许浏览器使用麦克风。</li>
           <li>如果提示"全部来自公共牌"，说明你的底牌没用上，所有对手至少也有这手牌，最好也只是平分。</li>
         </ul>
       </div>

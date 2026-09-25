@@ -6,11 +6,13 @@ const crypto = require('crypto');
 const express = require('express');
 const { Server } = require('socket.io');
 const { Table, GameError } = require('./table');
+const bot = require('./bot');
 
 const PORT = process.env.PORT || 3000;
 const TURN_SECONDS = Number(process.env.TURN_SECONDS || 60);
 const NEXT_HAND_SECONDS = Number(process.env.NEXT_HAND_SECONDS || 6);
 const EMPTY_ROOM_TTL_MS = 10 * 60 * 1000;
+const BOT_DELAY_MS = [900, 2200]; // 机器人"思考"时间，太快看不清
 
 const app = express();
 app.use(express.static(path.join(__dirname, '..', 'public')));
@@ -56,6 +58,7 @@ function broadcast(room) {
     state.turnMsLeft = room.turnDeadline ? Math.max(0, room.turnDeadline - now) : null;
     state.turnMsTotal = room.turnDuration || null;
     state.nextHandMsLeft = room.nextHandAt ? Math.max(0, room.nextHandAt - now) : null;
+    state.voice = [...room.voice.values()];
     socket.emit('state', state);
   }
 }
@@ -67,7 +70,23 @@ function schedule(room) {
   room.turnDeadline = null;
 
   const actor = table.toActPlayer();
-  if (actor) {
+  if (actor && actor.isBot) {
+    const seq = table.seq;
+    const [min, max] = BOT_DELAY_MS;
+    room.turnTimer = setTimeout(() => {
+      if (table.seq !== seq) return;
+      try {
+        const move = bot.decide(table, actor.id);
+        table.act(actor.id, move.type, move.amount);
+      } catch (e) {
+        console.error('bot failed', e);
+        try {
+          table.autoAct(actor.id);
+        } catch {}
+      }
+      schedule(room);
+    }, min + Math.random() * (max - min));
+  } else if (actor) {
     const seq = table.seq;
     const seconds = actor.connected ? TURN_SECONDS : Math.min(TURN_SECONDS, 5);
     room.turnDeadline = Date.now() + seconds * 1000;
@@ -88,7 +107,11 @@ function schedule(room) {
     room.nextHandTimer = setTimeout(() => {
       room.nextHandTimer = null;
       room.nextHandAt = null;
-      if (table.canStartHand()) {
+      // 机器人输光了自动补码，保证能一直陪玩
+      for (const p of table.players.values()) if (p.isBot && p.chips === 0) table.rebuy(p.id);
+      // 没有真人在线就暂停，免得机器人自己一直打
+      const humans = [...table.players.values()].some((p) => !p.isBot && p.connected);
+      if (humans && table.canStartHand()) {
         table.startHand();
       } else {
         room.started = false; // 人不够了，等房主重新开始
@@ -97,6 +120,12 @@ function schedule(room) {
     }, NEXT_HAND_SECONDS * 1000);
   }
 
+  broadcast(room);
+}
+
+function leaveVoice(room, socket) {
+  if (!room.voice.delete(socket.id)) return;
+  socket.to(room.code).emit('voice:peer-left', { socketId: socket.id });
   broadcast(room);
 }
 
@@ -136,7 +165,7 @@ io.on('connection', (socket) => {
       maxSeats: clampInt(settings.maxSeats, 2, 9, 9),
     });
     const code = makeRoomCode();
-    const room = { code, table, started: false, emptySince: null };
+    const room = { code, table, started: false, emptySince: null, voice: new Map() };
     rooms.set(code, room);
     const playerId = crypto.randomUUID();
     table.addPlayer(playerId, cleanName(name));
@@ -175,6 +204,61 @@ io.on('connection', (socket) => {
     schedule(room);
   });
 
+  handle('addBot', ({ seat }) => {
+    const room = getRoom(socket);
+    const { table } = room;
+    if (table.hostId !== socket.data.playerId) throw new GameError('只有房主可以添加机器人');
+    const s = Number.isInteger(seat) ? seat : undefined;
+    table.addPlayer('bot-' + crypto.randomUUID(), bot.pickBotName(table), { isBot: true, seat: s });
+    schedule(room);
+  });
+
+  handle('removeBot', ({ id }) => {
+    const room = getRoom(socket);
+    const { table } = room;
+    if (table.hostId !== socket.data.playerId) throw new GameError('只有房主可以移除机器人');
+    const p = table.players.get(id);
+    if (!p || !p.isBot) throw new GameError('找不到这个机器人');
+    table.removePlayer(id);
+    schedule(room);
+  });
+
+  handle('showCards', () => {
+    const room = getRoom(socket);
+    room.table.showCards(socket.data.playerId);
+    schedule(room);
+  });
+
+  // ---------- 语音聊天：服务器只负责转发 WebRTC 信令，语音数据点对点直连 ----------
+
+  handle('voice:join', () => {
+    const room = getRoom(socket);
+    const peers = [...room.voice.entries()]
+      .filter(([sid]) => sid !== socket.id)
+      .map(([sid, v]) => ({ socketId: sid, playerId: v.playerId }));
+    room.voice.set(socket.id, { playerId: socket.data.playerId, muted: false });
+    broadcast(room);
+    return { ok: true, peers };
+  });
+
+  handle('voice:signal', ({ to, data }) => {
+    const room = getRoom(socket);
+    if (!room.voice.has(socket.id) || !room.voice.has(to)) return;
+    io.to(to).emit('voice:signal', { from: socket.id, playerId: socket.data.playerId, data });
+  });
+
+  handle('voice:mute', ({ muted }) => {
+    const room = getRoom(socket);
+    const v = room.voice.get(socket.id);
+    if (v) v.muted = !!muted;
+    broadcast(room);
+  });
+
+  handle('voice:leave', () => {
+    const room = getRoom(socket);
+    leaveVoice(room, socket);
+  });
+
   handle('rebuy', () => {
     const room = getRoom(socket);
     room.table.rebuy(socket.data.playerId);
@@ -191,6 +275,7 @@ io.on('connection', (socket) => {
 
   handle('leaveRoom', () => {
     const room = getRoom(socket);
+    leaveVoice(room, socket);
     room.table.removePlayer(socket.data.playerId);
     socket.leave(room.code);
     socket.data.roomCode = null;
@@ -201,6 +286,7 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     const room = rooms.get(socket.data.roomCode);
     if (!room) return;
+    leaveVoice(room, socket);
     room.table.setConnected(socket.data.playerId, false);
     if (!io.sockets.adapter.rooms.get(room.code)?.size) room.emptySince = Date.now();
     schedule(room);
