@@ -1,0 +1,361 @@
+:root {
+  --bg: #07130e;
+  --felt: #0e5a3c;
+  --felt-dark: #0a4430;
+  --rail: #3b2414;
+  --gold: #e8b84a;
+  --gold-dark: #b98a24;
+  --text: #f3f1ea;
+  --muted: #a8b3ad;
+  --red: #d8414b;
+  --blue: #2f7de1;
+  --panel: rgba(12, 22, 18, 0.92);
+  --card-red: #c8252f;
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  height: 100%;
+  background: radial-gradient(ellipse at top, #12281f, var(--bg) 70%);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  overflow: hidden;
+}
+.hidden { display: none !important; }
+.muted { color: var(--muted); font-size: 0.85em; }
+.error { color: #ff8a8a; min-height: 1.2em; text-align: center; }
+
+/* ---------- 按钮与输入 ---------- */
+.btn {
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 18px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  background: #2a3a33;
+  cursor: pointer;
+  transition: transform 0.05s, filter 0.15s;
+}
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.btn.primary { background: var(--blue); }
+.btn.gold { background: linear-gradient(var(--gold), var(--gold-dark)); color: #2a1c02; }
+.btn.danger { background: var(--red); }
+.btn.ghost { background: rgba(255, 255, 255, 0.08); }
+.btn.small { padding: 7px 12px; font-size: 14px; }
+.btn.wide { width: 100%; }
+
+input, select {
+  width: 100%;
+  padding: 11px 12px;
+  border-radius: 10px;
+  border: 1px solid #33443c;
+  background: #0f1d18;
+  color: var(--text);
+  font-size: 16px;
+}
+.row { display: flex; gap: 8px; align-items: center; }
+.row input { flex: 1; min-width: 0; }
+
+/* ---------- 大厅 ---------- */
+.screen { position: fixed; inset: 0; display: flex; flex-direction: column; }
+#lobby { align-items: center; justify-content: center; padding: 16px; overflow-y: auto; }
+.lobby-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--panel);
+  border: 1px solid #22332b;
+  border-radius: 18px;
+  padding: 22px 18px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.lobby-card h1 { margin: 0; text-align: center; font-size: 28px; letter-spacing: 2px; }
+.subtitle { text-align: center; color: var(--muted); margin: 6px 0 18px; }
+.box { margin-top: 16px; padding-top: 14px; border-top: 1px solid #22332b; }
+.box h2 { font-size: 15px; margin: 0 0 10px; color: var(--gold); }
+.field { display: block; margin-bottom: 10px; }
+.field span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+#codeInput { text-transform: uppercase; letter-spacing: 4px; font-weight: 700; }
+
+/* ---------- 顶栏 ---------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
+}
+.room-info { text-align: center; font-size: 14px; }
+.room-info b { letter-spacing: 3px; color: var(--gold); font-size: 17px; }
+.room-info .muted { display: block; }
+
+/* ---------- 牌桌 ---------- */
+.table-wrap {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 10px 16px;
+}
+.table {
+  position: relative;
+  width: min(100%, 900px, calc((100vh - 230px) * 1.6));
+  aspect-ratio: 1.6;
+}
+.felt {
+  position: absolute;
+  inset: 8%;
+  border-radius: 999px;
+  background: radial-gradient(ellipse at center, #177a53, var(--felt) 45%, var(--felt-dark));
+  border: 10px solid var(--rail);
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.55), 0 12px 40px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.pot {
+  font-weight: 700;
+  color: var(--gold);
+  background: rgba(0, 0, 0, 0.35);
+  padding: 3px 12px;
+  border-radius: 999px;
+  font-size: 14px;
+  min-height: 1.5em;
+}
+.pot:empty { visibility: hidden; }
+.board { display: flex; gap: 4px; min-height: 58px; }
+.center-msg { font-size: 13px; color: #d5e8de; text-align: center; padding: 0 12px; }
+
+/* ---------- 扑克牌 ---------- */
+.card {
+  width: 40px;
+  height: 56px;
+  border-radius: 6px;
+  background: #fdfdfb;
+  color: #1a1a1a;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+  user-select: none;
+  animation: deal 0.25s ease-out;
+}
+.card .r { font-size: 20px; }
+.card .s { font-size: 18px; }
+.card.red { color: var(--card-red); }
+.card.back {
+  background: repeating-linear-gradient(45deg, #9d2533 0 5px, #b83343 5px 10px);
+  border: 2px solid #fff;
+}
+.card.dim { filter: brightness(0.55); }
+.card.win { outline: 3px solid var(--gold); transform: translateY(-4px); }
+@keyframes deal { from { transform: translateY(-10px); opacity: 0; } }
+
+/* ---------- 座位 ---------- */
+.seat {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 92px;
+  text-align: center;
+  z-index: 2;
+}
+.seat .hole { display: flex; justify-content: center; height: 42px; margin-bottom: -10px; }
+.seat .hole .card { width: 30px; height: 42px; margin: 0 -2px; }
+.seat .hole .card .r { font-size: 15px; }
+.seat .hole .card .s { font-size: 13px; }
+.seat.me .hole { height: 56px; margin-bottom: -12px; }
+.seat.me .hole .card { width: 40px; height: 56px; margin: 0 1px; }
+.seat.me .hole .card .r { font-size: 20px; }
+.seat.me .hole .card .s { font-size: 18px; }
+.plate {
+  position: relative;
+  background: rgba(8, 14, 12, 0.9);
+  border: 2px solid #2c3d35;
+  border-radius: 12px;
+  padding: 5px 4px 4px;
+}
+.plate .name { font-size: 13px; padding-right: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plate .chips { font-size: 13px; color: var(--gold); font-weight: 700; }
+.seat.turn .plate { border-color: var(--gold); box-shadow: 0 0 16px rgba(232, 184, 74, 0.7); }
+.seat.folded { opacity: 0.45; }
+.seat.offline .name::after { content: " (掉线)"; color: #ff9b9b; font-size: 11px; }
+.seat.winner .plate { border-color: #7dff9e; box-shadow: 0 0 18px rgba(125, 255, 158, 0.7); }
+.timer {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  border-radius: 0 0 0 10px;
+  background: var(--gold);
+  transition: width 0.25s linear;
+}
+.tag {
+  position: absolute;
+  top: -8px;
+  right: -6px;
+  background: #fff;
+  color: #222;
+  font-size: 11px;
+  font-weight: 800;
+  border-radius: 999px;
+  width: 20px;
+  height: 20px;
+  line-height: 20px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+.last-action {
+  font-size: 11px;
+  margin-top: 3px;
+  color: #e5f1eb;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 6px;
+  padding: 1px 4px;
+  display: inline-block;
+  white-space: nowrap;
+}
+.bet-chip {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+  background: rgba(0, 0, 0, 0.5);
+  color: var(--gold);
+  font-weight: 700;
+  font-size: 12px;
+  padding: 2px 8px 2px 4px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.bet-chip::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: var(--gold);
+  border: 2px dashed #fff;
+  vertical-align: -1px;
+}
+.empty-seat {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 2px dashed rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.25);
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ---------- 操作区 ---------- */
+.controls {
+  padding: 8px 12px calc(10px + env(safe-area-inset-bottom));
+  max-width: 560px;
+  width: 100%;
+  margin: 0 auto;
+  min-height: 72px;
+}
+.actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.actions .btn { padding: 14px 6px; }
+.raise-panel { background: var(--panel); border-radius: 12px; padding: 10px; margin-bottom: 8px; }
+.presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 8px; }
+#raiseSlider { flex: 1; accent-color: var(--gold); padding: 0; }
+#raiseAmount { width: 96px; flex: none; }
+.wait-msg { text-align: center; color: var(--muted); font-size: 14px; padding: 6px; }
+
+.result-banner {
+  position: absolute;
+  left: 50%;
+  top: 64px;
+  transform: translateX(-50%);
+  z-index: 5;
+  background: var(--panel);
+  border: 1px solid var(--gold-dark);
+  border-radius: 12px;
+  padding: 8px 14px;
+  font-size: 14px;
+  text-align: center;
+  max-width: calc(100% - 32px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+.result-banner b { color: var(--gold); }
+
+/* ---------- 聊天 ---------- */
+.chat-toggle {
+  position: fixed;
+  right: 12px;
+  top: calc(64px + env(safe-area-inset-top));
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--panel);
+  font-size: 20px;
+  z-index: 6;
+  cursor: pointer;
+}
+.badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--red);
+}
+.chat-panel {
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: min(340px, 100%);
+  background: var(--panel);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  padding: calc(10px + env(safe-area-inset-top)) 10px calc(10px + env(safe-area-inset-bottom));
+  border-left: 1px solid #22332b;
+}
+.chat-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.chat-log { flex: 1; overflow-y: auto; font-size: 14px; display: flex; flex-direction: column; gap: 4px; }
+.chat-log .sys { color: var(--muted); font-size: 12px; }
+.chat-log .msg b { color: var(--gold); }
+.chat-panel form { margin-top: 8px; }
+
+.toast {
+  position: fixed;
+  left: 50%;
+  top: 20%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.85);
+  padding: 10px 18px;
+  border-radius: 10px;
+  z-index: 20;
+  font-size: 15px;
+  max-width: 90%;
+  text-align: center;
+}
+
+@media (max-width: 600px) {
+  .table { aspect-ratio: 0.72; width: min(100%, calc((100vh - 230px) * 0.72)); }
+  .felt { inset: 12% 10%; }
+  .card { width: 34px; height: 48px; }
+  .card .r { font-size: 17px; }
+  .card .s { font-size: 15px; }
+  .board { min-height: 48px; gap: 3px; }
+  .seat { width: 78px; }
+}
