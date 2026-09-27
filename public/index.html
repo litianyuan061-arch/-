@@ -109,7 +109,10 @@
       <div id="waitMsg" class="wait-msg"></div>
     </footer>
 
-    <button id="muteBtn" class="btn ghost small mute-btn hidden">🎙 静音</button>
+    <div class="voice-tools">
+      <button id="muteBtn" class="btn ghost small hidden">🎙 静音</button>
+      <button id="effectBtn" class="btn ghost small">🎭 变声</button>
+    </div>
     <button id="chatToggle" class="chat-toggle" aria-label="聊天">💬<span id="chatBadge" class="badge hidden"></span></button>
     <aside id="chatPanel" class="chat-panel hidden">
       <div class="chat-head">
@@ -179,9 +182,22 @@
           <li>一手结束后可以点「亮牌」，把自己的底牌秀给大家看。</li>
           <li>房主点空位可以添加 🤖 机器人，人不够也能开局；点机器人头像上的 × 移除。</li>
           <li>点右上角「🎤 语音」可以和同桌的人语音聊天，第一次需要允许浏览器使用麦克风。</li>
+          <li>点「🎭 变声」可以选择御姐音、可爱甜美音、男性气泡音、磁性嗓音、正太音。</li>
           <li>如果提示"全部来自公共牌"，说明你的底牌没用上，所有对手至少也有这手牌，最好也只是平分。</li>
         </ul>
       </div>
+    </div>
+  </div>
+
+  <div id="effectModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="chat-head">
+        <b>🎭 变声器</b>
+        <button id="effectClose" class="btn ghost small">关闭</button>
+      </div>
+      <p class="muted">语音聊天时别人听到的是变声后的声音。选好后可以先试听。</p>
+      <div id="effectList" class="effect-list"></div>
+      <button id="monitorBtn" class="btn ghost wide">🎧 试听自己的声音（请戴耳机）</button>
     </div>
   </div>
 

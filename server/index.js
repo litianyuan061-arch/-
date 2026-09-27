@@ -7,6 +7,7 @@ const express = require('express');
 const { Server } = require('socket.io');
 const { Table, GameError } = require('./table');
 const bot = require('./bot');
+const { getIceServers } = require('./ice');
 
 const PORT = process.env.PORT || 3000;
 const TURN_SECONDS = Number(process.env.TURN_SECONDS || 60);
@@ -17,6 +18,11 @@ const BOT_DELAY_MS = [900, 2200]; // 机器人"思考"时间，太快看不清
 const app = express();
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.get('/health', (req, res) => res.json({ ok: true, rooms: rooms.size }));
+// 语音连接用的 STUN/TURN 配置（TURN 凭证是临时生成的，不能写死在前端）
+app.get('/api/ice-servers', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(await getIceServers());
+});
 
 const server = http.createServer(app);
 const io = new Server(server);
@@ -252,6 +258,13 @@ io.on('connection', (socket) => {
     const v = room.voice.get(socket.id);
     if (v) v.muted = !!muted;
     broadcast(room);
+  });
+
+  // 说话状态由各自客户端检测本地麦克风后上报，不在接收端分析远端音频（iOS 上会导致杂音）
+  handle('voice:speaking', ({ speaking }) => {
+    const room = getRoom(socket);
+    if (!room.voice.has(socket.id)) return;
+    socket.to(room.code).volatile.emit('voice:speaking', { playerId: socket.data.playerId, speaking: !!speaking });
   });
 
   handle('voice:leave', () => {

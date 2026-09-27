@@ -617,102 +617,372 @@ $('rulesModal').onclick = (e) => {
   if (e.target.id === 'rulesModal') $('rulesModal').classList.add('hidden');
 };
 
-// ---------- 语音聊天（WebRTC 点对点，服务器只转发信令） ----------
+// ---------- 语音聊天（WebRTC，服务器只转发信令；配置了 TURN 时无法直连会自动走中转） ----------
 
-const ICE_CONFIG = {
-  iceServers: [
-    { urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] },
-    { urls: 'stun:stun.miwifi.com:3478' },
-  ],
+const FALLBACK_ICE = [
+  { urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] },
+  { urls: 'stun:stun.miwifi.com:3478' },
+];
+const EFFECT_KEY = 'holdem-voice-effect';
+
+// 变声预设：pitch 是音高倍数，eq 是 [类型, 频率, 增益dB, Q]
+const VOICE_EFFECTS = {
+  none: { name: '原声', desc: '不做任何处理，音质最好' },
+  yujie: {
+    name: '御姐音',
+    desc: '成熟、有气场的女声',
+    pitch: 1.22,
+    eq: [['highpass', 120], ['lowshelf', 300, 2], ['peaking', 1800, 2, 1], ['highshelf', 6000, 2]],
+  },
+  sweet: {
+    name: '可爱甜美音',
+    desc: '软萌甜美的少女声',
+    pitch: 1.45,
+    eq: [['highpass', 200], ['peaking', 3000, 4, 1], ['highshelf', 7000, 3]],
+  },
+  fry: {
+    name: '男性气泡音',
+    desc: '低沉、带颗粒感的"气泡"声',
+    pitch: 0.78,
+    eq: [['lowshelf', 180, 4], ['lowpass', 5000]],
+    tremolo: { rate: 34, depth: 0.6 },
+  },
+  magnetic: {
+    name: '磁性嗓音',
+    desc: '浑厚低沉、带一点混响',
+    pitch: 0.87,
+    eq: [['lowshelf', 160, 6], ['peaking', 3200, -2, 1], ['highshelf', 8000, -3]],
+    reverb: 0.15,
+  },
+  shota: {
+    name: '正太音',
+    desc: '清亮的小男孩声',
+    pitch: 1.3,
+    eq: [['highpass', 160], ['peaking', 2200, 3, 1.2]],
+  },
 };
-const voice = { joined: false, stream: null, muted: false, peers: new Map(), ctx: null, meters: new Map() };
+
+const voice = {
+  joined: false,
+  raw: null, // 麦克风原始流
+  sendTrack: null, // 发给别人的音轨（可能经过变声处理）
+  sendStream: null,
+  muted: false,
+  peers: new Map(),
+  ctx: null,
+  worklet: false,
+  chain: [], // 当前变声处理链的节点
+  chainOut: null, // 处理链的最终输出（试听用）
+  monitor: false,
+  effect: 'none',
+  iceServers: FALLBACK_ICE,
+  relay: false,
+  analyser: null,
+  speaking: false,
+  lastLoud: 0,
+};
+try {
+  const saved = localStorage.getItem(EFFECT_KEY);
+  if (saved && VOICE_EFFECTS[saved]) voice.effect = saved;
+} catch {}
 const voiceSpeaking = new Set();
 
-async function joinVoice() {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.RTCPeerConnection) {
-    return toast('当前浏览器不支持语音，请用 Chrome 或 Safari 打开 https 网址', 4000);
+function voiceSupported() {
+  return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.RTCPeerConnection);
+}
+
+// 打开麦克风和音频处理（加入语音或试听变声时调用）
+async function prepareAudio() {
+  if (voice.raw) return true;
+  if (!voiceSupported()) {
+    toast('当前浏览器不支持语音，请用手机自带浏览器（Safari / Chrome）打开网址', 4000);
+    return false;
   }
   try {
-    voice.stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    voice.raw = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
     });
   } catch {
-    return toast('没有拿到麦克风权限，请在浏览器设置里允许使用麦克风', 4000);
+    toast('没有拿到麦克风权限，请在浏览器设置里允许使用麦克风', 4000);
+    return false;
   }
   try {
-    voice.ctx = new (window.AudioContext || window.webkitAudioContext)();
-  } catch {}
+    voice.ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+    await voice.ctx.resume();
+    const src = voice.ctx.createMediaStreamSource(voice.raw);
+    voice.analyser = voice.ctx.createAnalyser();
+    voice.analyser.fftSize = 512;
+    src.connect(voice.analyser);
+    voice.analyserData = new Uint8Array(voice.analyser.fftSize);
+    if (voice.ctx.audioWorklet) {
+      await voice.ctx.audioWorklet.addModule('pitch-worklet.js');
+      voice.worklet = true;
+    }
+  } catch (e) {
+    console.warn('audio setup', e);
+  }
+  applyMute();
+  buildSendTrack();
+  return true;
+}
+
+function releaseAudio() {
+  teardownChain();
+  if (voice.raw) voice.raw.getTracks().forEach((t) => t.stop());
+  if (voice.sendTrack) voice.sendTrack.stop();
+  if (voice.ctx) voice.ctx.close().catch(() => {});
+  Object.assign(voice, { raw: null, sendTrack: null, sendStream: null, ctx: null, worklet: false, analyser: null, monitor: false });
+  setSpeaking(false);
+}
+
+function teardownChain() {
+  for (const node of voice.chain) {
+    try {
+      node.disconnect();
+      if (node.stop) node.stop();
+    } catch {}
+  }
+  voice.chain = [];
+  voice.chainOut = null;
+}
+
+function makeImpulse(ctx, seconds) {
+  const len = Math.floor(ctx.sampleRate * seconds);
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+  return buf;
+}
+
+// 根据当前变声效果生成要发送的音轨
+function buildSendTrack() {
+  const { ctx } = voice;
+  const fx = VOICE_EFFECTS[voice.effect] || VOICE_EFFECTS.none;
+  const oldTrack = voice.sendTrack;
+  teardownChain();
+
+  let track;
+  if (!ctx || !fx.pitch || !voice.worklet) {
+    // 原声：直接发送麦克风（克隆一份，静音时不影响本地试听和说话检测）
+    track = voice.raw.getAudioTracks()[0].clone();
+    if (ctx) {
+      const src = ctx.createMediaStreamSource(voice.raw);
+      voice.chain.push(src);
+      voice.chainOut = src;
+    }
+  } else {
+    const nodes = [];
+    const src = ctx.createMediaStreamSource(voice.raw);
+    nodes.push(src);
+    const pitch = new AudioWorkletNode(ctx, 'pitch-shifter', { parameterData: { pitch: fx.pitch } });
+    nodes.push(pitch);
+    for (const [type, freq, gain, q] of fx.eq || []) {
+      const f = ctx.createBiquadFilter();
+      f.type = type;
+      f.frequency.value = freq;
+      if (gain != null) f.gain.value = gain;
+      if (q != null) f.Q.value = q;
+      nodes.push(f);
+    }
+    for (let i = 0; i < nodes.length - 1; i++) nodes[i].connect(nodes[i + 1]);
+    let last = nodes[nodes.length - 1];
+
+    if (fx.tremolo) {
+      // 快速的音量抖动，模拟声带"咕噜咕噜"的气泡感
+      const amp = ctx.createGain();
+      amp.gain.value = 1 - fx.tremolo.depth / 2;
+      const lfo = ctx.createOscillator();
+      lfo.type = 'triangle';
+      lfo.frequency.value = fx.tremolo.rate;
+      const depth = ctx.createGain();
+      depth.gain.value = fx.tremolo.depth / 2;
+      lfo.connect(depth).connect(amp.gain);
+      lfo.start();
+      last.connect(amp);
+      nodes.push(amp, lfo, depth);
+      last = amp;
+    }
+    if (fx.reverb) {
+      const mix = ctx.createGain();
+      const wet = ctx.createGain();
+      wet.gain.value = fx.reverb;
+      const conv = ctx.createConvolver();
+      conv.buffer = makeImpulse(ctx, 0.9);
+      last.connect(mix);
+      last.connect(conv).connect(wet).connect(mix);
+      nodes.push(mix, wet, conv);
+      last = mix;
+    }
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -20;
+    comp.ratio.value = 3;
+    last.connect(comp);
+    const dest = ctx.createMediaStreamDestination();
+    comp.connect(dest);
+    nodes.push(comp, dest);
+    voice.chain = nodes;
+    voice.chainOut = comp;
+    track = dest.stream.getAudioTracks()[0];
+  }
+
+  if (voice.monitor && voice.chainOut) voice.chainOut.connect(ctx.destination);
+  track.enabled = !voice.muted;
+  voice.sendTrack = track;
+  if (!voice.sendStream) voice.sendStream = new MediaStream();
+  // 换音轨时不需要重新协商，直接替换
+  for (const peer of voice.peers.values()) peer.sender.replaceTrack(track).catch(() => {});
+  if (oldTrack) oldTrack.stop();
+  return track;
+}
+
+async function loadIceServers() {
+  try {
+    const res = await fetch('/api/ice-servers', { cache: 'no-store' });
+    const data = await res.json();
+    voice.iceServers = data.iceServers && data.iceServers.length ? data.iceServers : FALLBACK_ICE;
+    voice.relay = !!data.relay;
+  } catch {
+    voice.iceServers = FALLBACK_ICE;
+    voice.relay = false;
+  }
+}
+
+async function joinVoice() {
+  if (!(await prepareAudio())) return;
+  await loadIceServers();
   const res = await emit('voice:join');
-  if (!res.ok) return stopLocalStream();
+  if (!res.ok) return releaseAudio();
   voice.joined = true;
-  voice.muted = false;
-  if (state) watchLevel(state.you.id, voice.stream);
   for (const peer of res.peers) createPeer(peer.socketId, peer.playerId, true);
   updateVoiceButtons();
   toast(res.peers.length ? `已加入语音，${res.peers.length} 人在线` : '已加入语音，等待其他人加入');
 }
 
-function stopLocalStream() {
-  if (voice.stream) voice.stream.getTracks().forEach((t) => t.stop());
-  voice.stream = null;
-}
-
 function leaveVoice(notify = true) {
   for (const id of [...voice.peers.keys()]) closePeer(id);
-  stopLocalStream();
-  for (const m of voice.meters.values()) m.source.disconnect();
-  voice.meters.clear();
-  voiceSpeaking.clear();
-  if (voice.ctx) voice.ctx.close().catch(() => {});
-  voice.ctx = null;
   if (voice.joined && notify) emit('voice:leave');
   voice.joined = false;
+  releaseAudio();
+  voiceSpeaking.clear();
+  refreshSpeakingUI();
   updateVoiceButtons();
 }
 
+// 调整 Opus 编码参数：开启前向纠错（弱网丢包时补偿）、单声道、提高码率
+function tuneOpus(sdp) {
+  const m = sdp.match(/a=rtpmap:(\d+) opus\/48000/i);
+  if (!m) return sdp;
+  const pt = m[1];
+  const params = 'useinbandfec=1;stereo=0;sprop-stereo=0;maxaveragebitrate=40000;maxplaybackrate=48000';
+  const fmtp = new RegExp(`a=fmtp:${pt} ([^\\r\\n]*)`);
+  if (fmtp.test(sdp)) {
+    return sdp.replace(fmtp, (line, existing) => {
+      const kept = existing
+        .split(';')
+        .filter((kv) => kv && !/^(useinbandfec|stereo|sprop-stereo|maxaveragebitrate|maxplaybackrate)=/.test(kv.trim()));
+      return `a=fmtp:${pt} ${[...kept, params].join(';')}`;
+    });
+  }
+  return sdp.replace(m[0], `${m[0]}\r\na=fmtp:${pt} ${params}`);
+}
+
 function createPeer(socketId, playerId, initiator) {
-  const pc = new RTCPeerConnection(ICE_CONFIG);
+  const pc = new RTCPeerConnection({ iceServers: voice.iceServers });
   const audio = document.createElement('audio');
   audio.autoplay = true;
   audio.setAttribute('playsinline', '');
   document.body.append(audio);
-  const peer = { pc, playerId, audio, pending: [] };
+
+  const sender = pc.addTrack(voice.sendTrack, voice.sendStream);
+  const peer = { pc, playerId, audio, sender, initiator, pending: [], restarts: 0, timer: null, warned: false };
   voice.peers.set(socketId, peer);
 
-  voice.stream.getTracks().forEach((t) => pc.addTrack(t, voice.stream));
+  try {
+    const params = sender.getParameters();
+    if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+    params.encodings[0].maxBitrate = 40000;
+    params.encodings[0].priority = 'high';
+    params.encodings[0].networkPriority = 'high';
+    sender.setParameters(params).catch(() => {});
+  } catch {}
+
   pc.onicecandidate = (e) => {
     if (e.candidate) socket.emit('voice:signal', { to: socketId, data: { candidate: e.candidate } });
   };
   pc.ontrack = (e) => {
-    audio.srcObject = e.streams[0];
+    // 加大抖动缓冲，手机网络波动时声音更连贯（多约 0.1 秒延迟）
+    try {
+      e.receiver.jitterBufferTarget = 150;
+    } catch {}
+    audio.srcObject = e.streams[0] || new MediaStream([e.track]);
     audio.play().catch(() => {});
-    watchLevel(playerId, e.streams[0]);
   };
   pc.onconnectionstatechange = () => {
-    if (pc.connectionState === 'failed') {
-      const name = state?.players.find((p) => p.id === playerId)?.name || '对方';
-      toast(`和 ${name} 的语音连接失败（网络限制），可以重新加入语音试试`, 4000);
+    const st = pc.connectionState;
+    clearTimeout(peer.timer);
+    if (st === 'connected') {
+      peer.restarts = 0;
+      peer.warned = false;
+    } else if (st === 'disconnected') {
+      // 网络短暂波动，稍等一下还没恢复就重连
+      peer.timer = setTimeout(() => pc.connectionState === 'disconnected' && restartPeer(socketId), 3000);
+    } else if (st === 'failed') {
+      restartPeer(socketId);
     }
   };
-  if (initiator) {
-    pc.createOffer()
-      .then((offer) => pc.setLocalDescription(offer))
-      .then(() => socket.emit('voice:signal', { to: socketId, data: { sdp: pc.localDescription } }));
-  }
+  if (initiator) makeOffer(socketId);
   return peer;
+}
+
+async function makeOffer(socketId, iceRestart = false) {
+  const peer = voice.peers.get(socketId);
+  if (!peer) return;
+  try {
+    const offer = await peer.pc.createOffer({ iceRestart });
+    offer.sdp = tuneOpus(offer.sdp);
+    await peer.pc.setLocalDescription(offer);
+    socket.emit('voice:signal', { to: socketId, data: { sdp: peer.pc.localDescription } });
+  } catch (e) {
+    console.warn('offer failed', e);
+  }
+}
+
+// 连接断开/失败时自动重连（由发起方重新协商），多次失败才提示
+function restartPeer(socketId) {
+  const peer = voice.peers.get(socketId);
+  if (!peer || !voice.joined) return;
+  peer.restarts++;
+  if (peer.restarts <= 3) {
+    if (peer.initiator) makeOffer(socketId, true);
+    // 非发起方等对方重连，超时再提示
+    peer.timer = setTimeout(() => {
+      if (peer.pc.connectionState !== 'connected') warnPeer(peer);
+    }, 15000);
+  } else {
+    warnPeer(peer);
+  }
+}
+
+function warnPeer(peer) {
+  if (peer.warned) return;
+  peer.warned = true;
+  const name = state?.players.find((p) => p.id === peer.playerId)?.name || '对方';
+  toast(
+    voice.relay
+      ? `和 ${name} 的语音连不上，请双方检查网络后点「📴」再重新加入语音`
+      : `和 ${name} 的语音连不上：你们的网络无法直连，需要房主给服务器配置语音中转（TURN）`,
+    5000
+  );
 }
 
 function closePeer(socketId) {
   const peer = voice.peers.get(socketId);
   if (!peer) return;
+  clearTimeout(peer.timer);
   peer.pc.close();
   peer.audio.remove();
-  const meter = voice.meters.get(peer.playerId);
-  if (meter) {
-    meter.source.disconnect();
-    voice.meters.delete(peer.playerId);
-  }
   voiceSpeaking.delete(peer.playerId);
+  refreshSpeakingUI();
   voice.peers.delete(socketId);
 }
 
@@ -724,7 +994,9 @@ socket.on('voice:signal', async ({ from, playerId, data }) => {
     if (data.sdp) {
       await pc.setRemoteDescription(data.sdp);
       if (data.sdp.type === 'offer') {
-        await pc.setLocalDescription(await pc.createAnswer());
+        const answer = await pc.createAnswer();
+        answer.sdp = tuneOpus(answer.sdp);
+        await pc.setLocalDescription(answer);
         socket.emit('voice:signal', { to: from, data: { sdp: pc.localDescription } });
       }
       for (const c of peer.pending) await pc.addIceCandidate(c);
@@ -738,48 +1010,115 @@ socket.on('voice:signal', async ({ from, playerId, data }) => {
   }
 });
 socket.on('voice:peer-left', ({ socketId }) => closePeer(socketId));
+socket.on('voice:speaking', ({ playerId, speaking }) => {
+  speaking ? voiceSpeaking.add(playerId) : voiceSpeaking.delete(playerId);
+  refreshSpeakingUI();
+});
 // 断线后服务器已经把我们移出语音，本地也清理掉
 socket.on('disconnect', () => voice.joined && leaveVoice(false));
 
-// 用音量检测谁在说话，给座位加高亮
-function watchLevel(playerId, stream) {
-  if (!voice.ctx || voice.meters.has(playerId)) return;
-  try {
-    const source = voice.ctx.createMediaStreamSource(stream);
-    const analyser = voice.ctx.createAnalyser();
-    analyser.fftSize = 512;
-    source.connect(analyser);
-    voice.meters.set(playerId, { source, analyser, data: new Uint8Array(analyser.fftSize) });
-  } catch {}
+function refreshSpeakingUI() {
+  document.querySelectorAll('.seat[data-pid]').forEach((el) => {
+    el.classList.toggle('speaking', voiceSpeaking.has(el.dataset.pid));
+  });
 }
 
+function setSpeaking(speaking) {
+  if (voice.speaking === speaking) return;
+  voice.speaking = speaking;
+  const me = state?.you?.id;
+  if (me) speaking ? voiceSpeaking.add(me) : voiceSpeaking.delete(me);
+  refreshSpeakingUI();
+  if (voice.joined) socket.emit('voice:speaking', { speaking });
+}
+
+// 只检测自己的麦克风音量，说话状态通过服务器同步给别人
 setInterval(() => {
-  if (!voice.joined) return;
-  for (const [playerId, m] of voice.meters) {
-    m.analyser.getByteTimeDomainData(m.data);
-    let sum = 0;
-    for (const x of m.data) sum += (x - 128) * (x - 128);
-    const rms = Math.sqrt(sum / m.data.length);
-    const muted = playerId === state?.you?.id && voice.muted;
-    const speaking = rms > 6 && !muted;
-    if (speaking !== voiceSpeaking.has(playerId)) {
-      speaking ? voiceSpeaking.add(playerId) : voiceSpeaking.delete(playerId);
-      document.querySelectorAll(`.seat[data-pid="${playerId}"]`).forEach((el) => el.classList.toggle('speaking', speaking));
-    }
-  }
-}, 150);
+  if (!voice.analyser || !voice.joined) return setSpeaking(false);
+  voice.analyser.getByteTimeDomainData(voice.analyserData);
+  let sum = 0;
+  for (const x of voice.analyserData) sum += (x - 128) * (x - 128);
+  const rms = Math.sqrt(sum / voice.analyserData.length);
+  const now = Date.now();
+  if (rms > 5 && !voice.muted) voice.lastLoud = now;
+  setSpeaking(now - voice.lastLoud < 400);
+}, 120);
+
+function applyMute() {
+  if (voice.sendTrack) voice.sendTrack.enabled = !voice.muted;
+}
 
 function updateVoiceButtons() {
   $('voiceBtn').innerHTML = voice.joined ? '📴<span class="lbl"> 退出语音</span>' : '🎤<span class="lbl"> 语音</span>';
   $('voiceBtn').classList.toggle('active', voice.joined);
   $('muteBtn').classList.toggle('hidden', !voice.joined);
   $('muteBtn').textContent = voice.muted ? '🔇 已静音' : '🎙 静音';
+  const fx = VOICE_EFFECTS[voice.effect];
+  $('effectBtn').textContent = voice.effect === 'none' ? '🎭 变声' : `🎭 ${fx.name}`;
+  $('effectBtn').classList.toggle('active', voice.effect !== 'none');
 }
 
 $('voiceBtn').onclick = () => (voice.joined ? leaveVoice() : joinVoice());
 $('muteBtn').onclick = () => {
   voice.muted = !voice.muted;
-  if (voice.stream) voice.stream.getAudioTracks().forEach((t) => (t.enabled = !voice.muted));
+  applyMute();
   emit('voice:mute', { muted: voice.muted });
   updateVoiceButtons();
 };
+
+// ---------- 变声器面板 ----------
+
+function renderEffects() {
+  const list = $('effectList');
+  list.innerHTML = '';
+  for (const [key, fx] of Object.entries(VOICE_EFFECTS)) {
+    const btn = document.createElement('button');
+    btn.className = 'effect-item' + (voice.effect === key ? ' active' : '');
+    btn.innerHTML = '<b></b><small></small>';
+    btn.querySelector('b').textContent = fx.name;
+    btn.querySelector('small').textContent = fx.desc;
+    btn.onclick = () => setEffect(key);
+    list.append(btn);
+  }
+  $('monitorBtn').textContent = voice.monitor ? '⏹ 停止试听' : '🎧 试听自己的声音（请戴耳机）';
+  $('monitorBtn').classList.toggle('active', voice.monitor);
+}
+
+function setEffect(key) {
+  voice.effect = key;
+  try {
+    localStorage.setItem(EFFECT_KEY, key);
+  } catch {}
+  if (voice.raw) buildSendTrack();
+  renderEffects();
+  updateVoiceButtons();
+  if (voice.effect !== 'none' && voice.raw && !voice.worklet) toast('当前浏览器不支持变声，请换用 Safari 或 Chrome');
+}
+
+async function setMonitor(on) {
+  if (on && !(await prepareAudio())) return;
+  voice.monitor = on;
+  if (voice.chainOut && voice.ctx) {
+    try {
+      if (on) voice.chainOut.connect(voice.ctx.destination);
+      else voice.chainOut.disconnect(voice.ctx.destination);
+    } catch {}
+  }
+  renderEffects();
+}
+
+function closeEffects() {
+  $('effectModal').classList.add('hidden');
+  if (voice.monitor) setMonitor(false);
+  // 只是试听、没有加入语音的话，关掉麦克风
+  if (!voice.joined) releaseAudio();
+}
+
+$('effectBtn').onclick = () => {
+  renderEffects();
+  $('effectModal').classList.remove('hidden');
+};
+$('monitorBtn').onclick = () => setMonitor(!voice.monitor);
+$('effectClose').onclick = closeEffects;
+$('effectModal').onclick = (e) => e.target.id === 'effectModal' && closeEffects();
+updateVoiceButtons();

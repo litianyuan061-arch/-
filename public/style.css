@@ -413,7 +413,32 @@ input, select {
 }
 .seat.speaking .plate { border-color: #5ad1ff; box-shadow: 0 0 14px rgba(90, 209, 255, 0.8); }
 #voiceBtn.active { background: rgba(90, 209, 255, 0.25); }
-.mute-btn { position: fixed; right: 12px; top: calc(116px + env(safe-area-inset-top)); z-index: 6; }
+.voice-tools {
+  position: fixed;
+  right: 12px;
+  top: calc(116px + env(safe-area-inset-top));
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.voice-tools .btn { background: rgba(12, 22, 18, 0.85); }
+#effectBtn.active { background: rgba(200, 120, 255, 0.3); }
+.effect-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.effect-item {
+  text-align: left;
+  border: 2px solid #2c3d35;
+  background: #0f1d18;
+  color: var(--text);
+  border-radius: 12px;
+  padding: 10px;
+  cursor: pointer;
+}
+.effect-item b { display: block; font-size: 15px; }
+.effect-item small { color: var(--muted); font-size: 12px; }
+.effect-item.active { border-color: #c878ff; background: rgba(200, 120, 255, 0.15); }
+#monitorBtn.active { background: rgba(90, 209, 255, 0.25); }
 #showControls { margin-bottom: 8px; }
 .center-msg { white-space: pre-line; }
 

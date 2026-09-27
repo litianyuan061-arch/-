@@ -10,7 +10,8 @@
 - **断线重连**：刷新页面或网络断开后自动回到原座位
 - **行动计时**：每人 1 分钟，超时自动过牌/弃牌（掉线的玩家 5 秒），不会卡住整桌
 - **机器人**：房主点空位即可添加 🤖 机器人（会根据胜率和底池赔率决策，偶尔诈唬），人不够也能开局
-- **语音聊天**：同桌玩家点「🎤」即可语音，WebRTC 点对点直连，显示谁在说话、支持静音
+- **语音聊天**：同桌玩家点「🎤」即可语音，显示谁在说话、支持静音；弱网自动重连，开启了 Opus 丢包纠错
+- **变声器**：御姐音、可爱甜美音、男性气泡音、磁性嗓音、正太音，可先戴耳机试听
 - **亮牌**：一手结束后可以把自己的底牌秀给大家看
 - **其他**：牌型实时提示、规则说明、输光后可补码、文字聊天和牌局记录、适配手机竖屏
 
@@ -39,6 +40,21 @@ npm start
 
 要让不在身边的朋友也能玩，需要把服务部署到公网，例如 Render、Railway、Fly.io，或者自己的云服务器。启动命令都是 `npm start`，端口读取 `PORT` 环境变量。
 
+## 语音中转服务器（强烈建议配置）
+
+语音默认是玩家之间直连。手机 4G/5G、公司/学校网络经常无法直连，会提示「语音连不上」。
+配置一个 TURN 中转服务器就能解决，推荐 Cloudflare（每月 1000GB 免费，足够朋友间使用）：
+
+1. 注册并登录 [Cloudflare](https://dash.cloudflare.com/)
+2. 左侧菜单找到 **Realtime**（实时通信）→ **TURN Server**，点 **Create** 创建一个 TURN Key
+3. 创建后会显示 **Turn Token ID** 和 **API Token**（API Token 只显示一次，先复制保存好）
+4. 打开 Render 后台 → 你的服务 → **Environment** → 添加两个变量后保存（会自动重新部署）：
+   - `CLOUDFLARE_TURN_KEY_ID` = Turn Token ID
+   - `CLOUDFLARE_TURN_API_TOKEN` = API Token
+5. 部署完成后打开 `https://你的网址/api/ice-servers`，看到 `"relay":true` 就说明配置成功
+
+也可以用 Metered（`METERED_DOMAIN`、`METERED_API_KEY`）或自建 coturn（`TURN_URLS`、`TURN_USERNAME`、`TURN_CREDENTIAL`）。
+
 ### 环境变量
 
 | 变量 | 默认值 | 说明 |
@@ -46,6 +62,9 @@ npm start
 | `PORT` | `3000` | 监听端口 |
 | `TURN_SECONDS` | `60` | 每次行动的时限（秒） |
 | `NEXT_HAND_SECONDS` | `6` | 一手结束后，隔多少秒自动开始下一手 |
+| `CLOUDFLARE_TURN_KEY_ID` / `CLOUDFLARE_TURN_API_TOKEN` | 无 | Cloudflare 语音中转（见上文） |
+| `METERED_DOMAIN` / `METERED_API_KEY` | 无 | Metered 语音中转 |
+| `TURN_URLS` / `TURN_USERNAME` / `TURN_CREDENTIAL` | 无 | 自建 TURN 服务器 |
 
 ## 测试
 
@@ -62,16 +81,18 @@ server/
   cards.js    牌堆、洗牌、牌型评估
   table.js    牌桌规则引擎（纯逻辑，不涉及网络）
   bot.js      机器人 AI（蒙特卡洛估算胜率）
+  ice.js      语音 STUN/TURN 配置
   index.js    Express + Socket.IO 服务器：房间、计时器、状态推送
 public/
   index.html  大厅和牌桌页面
   style.css
-  client.js   前端逻辑
+  client.js   前端逻辑（含语音、变声）
+  pitch-worklet.js  实时变调处理器
 test/         单元测试
 ```
 
 ## 说明
 
 - 房间保存在服务器内存里，服务器重启后房间会清空；一个房间没人超过 10 分钟会自动删除
-- 语音聊天需要通过 https 访问（部署到 Render 后自带）。只用了公共 STUN 服务器，个别网络环境（如部分公司网络、对称 NAT）可能连不上，需要再配置 TURN 服务器
+- 语音聊天需要通过 https 访问（部署到 Render 后自带）。微信内置浏览器的语音效果较差，建议用 Safari / Chrome 打开
 - 这是朋友间娱乐用的，筹码是虚拟的，不涉及真实金钱
