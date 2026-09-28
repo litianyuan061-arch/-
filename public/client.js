@@ -625,42 +625,60 @@ const FALLBACK_ICE = [
 ];
 const EFFECT_KEY = 'holdem-voice-effect';
 
-// 变声预设：pitch 是音高倍数，eq 是 [类型, 频率, 增益dB, Q]
+// 变声预设（自然风格）：
+// targetF0 目标平均音高（Hz），会根据说话人自己的音高自动换算倍数；
+// formantFromMale / formantFromFemale：原声是男声/女声时，声道共鸣（共振峰）的调整倍数；
+// creak 气泡音强度；eq 只做轻微修饰
 const VOICE_EFFECTS = {
   none: { name: '原声', desc: '不做任何处理，音质最好' },
   yujie: {
     name: '御姐音',
-    desc: '成熟、有气场的女声',
-    pitch: 1.22,
-    eq: [['highpass', 120], ['lowshelf', 300, 2], ['peaking', 1800, 2, 1], ['highshelf', 6000, 2]],
+    desc: '成熟、偏低沉的女声',
+    targetF0: 190,
+    formantFromMale: 1.14,
+    formantFromFemale: 1.02,
+    gain: 1.2,
+    eq: [['highpass', 100], ['peaking', 250, 1.5, 0.8]],
   },
   sweet: {
     name: '可爱甜美音',
-    desc: '软萌甜美的少女声',
-    pitch: 1.45,
-    eq: [['highpass', 200], ['peaking', 3000, 4, 1], ['highshelf', 7000, 3]],
+    desc: '清甜、年轻的少女声',
+    targetF0: 265,
+    formantFromMale: 1.2,
+    formantFromFemale: 1.08,
+    gain: 1.45,
+    eq: [['highpass', 150], ['highshelf', 6000, 2]],
   },
   fry: {
     name: '男性气泡音',
-    desc: '低沉、带颗粒感的"气泡"声',
-    pitch: 0.78,
-    eq: [['lowshelf', 180, 4], ['lowpass', 5000]],
-    tremolo: { rate: 34, depth: 0.6 },
+    desc: '低沉、带"咕噜"颗粒感',
+    targetF0: 84,
+    formantFromMale: 0.97,
+    formantFromFemale: 0.85,
+    creak: 0.45,
+    gain: 1.5,
+    eq: [['lowshelf', 200, 2]],
   },
   magnetic: {
     name: '磁性嗓音',
-    desc: '浑厚低沉、带一点混响',
-    pitch: 0.87,
-    eq: [['lowshelf', 160, 6], ['peaking', 3200, -2, 1], ['highshelf', 8000, -3]],
-    reverb: 0.15,
+    desc: '浑厚低沉的成熟男声',
+    targetF0: 98,
+    formantFromMale: 0.95,
+    formantFromFemale: 0.84,
+    gain: 1.3,
+    eq: [['lowshelf', 180, 3], ['peaking', 3500, -1.5, 1]],
   },
   shota: {
     name: '正太音',
-    desc: '清亮的小男孩声',
-    pitch: 1.3,
-    eq: [['highpass', 160], ['peaking', 2200, 3, 1.2]],
+    desc: '清亮的少年声',
+    targetF0: 240,
+    formantFromMale: 1.17,
+    formantFromFemale: 1.05,
+    gain: 1.3,
+    eq: [['highpass', 140]],
   },
 };
+const F0_KEY = 'holdem-voice-f0';
 
 const voice = {
   joined: false,
@@ -715,7 +733,7 @@ async function prepareAudio() {
     src.connect(voice.analyser);
     voice.analyserData = new Uint8Array(voice.analyser.fftSize);
     if (voice.ctx.audioWorklet) {
-      await voice.ctx.audioWorklet.addModule('pitch-worklet.js');
+      await voice.ctx.audioWorklet.addModule('voice-worklet.js');
       voice.worklet = true;
     }
   } catch (e) {
@@ -746,14 +764,6 @@ function teardownChain() {
   voice.chainOut = null;
 }
 
-function makeImpulse(ctx, seconds) {
-  const len = Math.floor(ctx.sampleRate * seconds);
-  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
-  return buf;
-}
-
 // 根据当前变声效果生成要发送的音轨
 function buildSendTrack() {
   const { ctx } = voice;
@@ -762,7 +772,7 @@ function buildSendTrack() {
   teardownChain();
 
   let track;
-  if (!ctx || !fx.pitch || !voice.worklet) {
+  if (!ctx || !fx.targetF0 || !voice.worklet) {
     // 原声：直接发送麦克风（克隆一份，静音时不影响本地试听和说话检测）
     track = voice.raw.getAudioTracks()[0].clone();
     if (ctx) {
@@ -774,8 +784,26 @@ function buildSendTrack() {
     const nodes = [];
     const src = ctx.createMediaStreamSource(voice.raw);
     nodes.push(src);
-    const pitch = new AudioWorkletNode(ctx, 'pitch-shifter', { parameterData: { pitch: fx.pitch } });
-    nodes.push(pitch);
+    let initialF0 = 0;
+    try {
+      initialF0 = Number(localStorage.getItem(F0_KEY)) || 0;
+    } catch {}
+    const changer = new AudioWorkletNode(ctx, 'voice-changer', {
+      processorOptions: {
+        targetF0: fx.targetF0,
+        formantFromMale: fx.formantFromMale,
+        formantFromFemale: fx.formantFromFemale,
+        creak: fx.creak || 0,
+        initialF0,
+      },
+    });
+    // 记住说话人的平均音高，下次一开口就是自然的效果
+    changer.port.onmessage = (e) => {
+      try {
+        if (e.data.speakerF0) localStorage.setItem(F0_KEY, String(Math.round(e.data.speakerF0)));
+      } catch {}
+    };
+    nodes.push(changer);
     for (const [type, freq, gain, q] of fx.eq || []) {
       const f = ctx.createBiquadFilter();
       f.type = type;
@@ -787,31 +815,12 @@ function buildSendTrack() {
     for (let i = 0; i < nodes.length - 1; i++) nodes[i].connect(nodes[i + 1]);
     let last = nodes[nodes.length - 1];
 
-    if (fx.tremolo) {
-      // 快速的音量抖动，模拟声带"咕噜咕噜"的气泡感
-      const amp = ctx.createGain();
-      amp.gain.value = 1 - fx.tremolo.depth / 2;
-      const lfo = ctx.createOscillator();
-      lfo.type = 'triangle';
-      lfo.frequency.value = fx.tremolo.rate;
-      const depth = ctx.createGain();
-      depth.gain.value = fx.tremolo.depth / 2;
-      lfo.connect(depth).connect(amp.gain);
-      lfo.start();
-      last.connect(amp);
-      nodes.push(amp, lfo, depth);
-      last = amp;
-    }
-    if (fx.reverb) {
-      const mix = ctx.createGain();
-      const wet = ctx.createGain();
-      wet.gain.value = fx.reverb;
-      const conv = ctx.createConvolver();
-      conv.buffer = makeImpulse(ctx, 0.9);
-      last.connect(mix);
-      last.connect(conv).connect(wet).connect(mix);
-      nodes.push(mix, wet, conv);
-      last = mix;
+    if (fx.gain) {
+      const g = ctx.createGain();
+      g.gain.value = fx.gain;
+      last.connect(g);
+      nodes.push(g);
+      last = g;
     }
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -20;
